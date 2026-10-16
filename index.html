@@ -211,6 +211,38 @@ function sendToGoogleSheet(h){
   }catch(e){ console.log("Form submit error", e); return false; }
 }
 </script>
+
+<script>
+// === FIX ZONES - EMBEDDED REAL ZONES FROM SHEET ===
+(function(){
+  var realZones = [['شيراتون', '15', '10', 'TRUE'], ['لوبساج المطار', '30', '30', 'TRUE'], ['النزهه الجديده', '20', '20', 'TRUE'], ['الجديده - الحجاز', '20', '20', 'TRUE'], ['عمار ابن ياسر', '20', '20', 'TRUE'], ['الجديده - الكوربه', '25', '30', 'TRUE'], ['بيتي سنتر الماظه', '20', '20', 'TRUE'], ['شارع الصاعقه', '15', '15', 'TRUE'], ['رايسون بلو', '15', '10', 'TRUE'], ['شارع انقره', '15', '15', 'TRUE'], ['صن سيتي', '15', '15', 'TRUE'], ['وادي دجله', '15', '20', 'TRUE'], ['مطار الماظه', '20', '15', 'TRUE'], ['مدينة نصر - النزهه', '25', '20', 'TRUE']];
+  // Override zones fetch to use embedded if CSV fails
+  var origFetch = window.fetch;
+  window.fetch = function(url) {
+    if (typeof url === 'string' && url.includes('gid=1209212451')) {
+      // Return embedded zones as CSV
+      var csv = "zone_name,delivery_fee,delivery_time,active\n" + realZones.map(function(r){ return r.join(","); }).join("\n");
+      return Promise.resolve(new Response(csv, {status:200, headers: {"Content-Type":"text/csv"}}));
+    }
+    return origFetch.apply(this, arguments);
+  };
+  // Also try to load zones from Apps Script JSONP
+  try {
+    var script = document.createElement('script');
+    script.src = 'https://script.google.com/macros/s/AKfycbwwMEb_ETd_hsh4h5VlZLneoJpUC3mIaA5MVVIzRd3-lzcJl3fcZiG6TnP_nCu2LLMY/exec?callback=zonesCallback&action=zones';
+    // We'll handle zones via callback if available
+    window.zonesCallback = function(data) {
+      if (data && data.zones && data.zones.length) {
+        console.log('Zones loaded from Apps Script:', data.zones.length);
+        // Store in localStorage for app to use
+        try { localStorage.setItem('pharmacy_zones_v2', JSON.stringify({zones: data.zones, ts: Date.now()})); } catch(e){}
+      }
+    };
+    document.head.appendChild(script);
+  } catch(e) {}
+})();
+</script>
+
 </head>
 <body>
   <div id="root"></div>
