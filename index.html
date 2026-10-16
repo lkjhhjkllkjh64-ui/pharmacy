@@ -635,5 +635,162 @@ document.addEventListener('DOMContentLoaded', ()=>{
 console.log('✅ Auto-fill FIXED V2 - only checkout');
 </script>
 
+
+<style>
+/* Points & Discount Badges */
+.points-badge{ background:#FFF3CD; color:#856404; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; display:inline-flex; align-items:center; gap:3px; margin-top:4px; }
+.discount-badge{ background:#FF4757; color:white; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; position:absolute; top:8px; right:8px; z-index:2; }
+.discount-section{ background:linear-gradient(90deg,#FF4757,#FF6B81); color:white; padding:12px; border-radius:12px; margin:12px 0; display:flex; justify-content:space-between; align-items:center; }
+.old-price{ text-decoration:line-through; opacity:0.6; font-size:13px; margin-left:6px; }
+.final-price{ color:#FF4757; font-weight:bold; font-size:18px; }
+</style>
+<script>
+(function(){
+  // Force products with discount to top - patch the sorting
+  const origSetItem = localStorage.setItem;
+  localStorage.setItem = function(k,v){
+    try{
+      if(k.includes('pharmacy') || k.includes('products') || k.includes('ultra')){
+        let data = JSON.parse(v);
+        if(data.products && Array.isArray(data.products)){
+          // Ensure points and discount parsed correctly
+          data.products.forEach(p=>{
+            // If discountValue exists, mark hasDiscount
+            if((p.discountValue||0) > 0 || (p.discount_value||0) > 0){
+              p.hasDiscount = true;
+              p.discountValue = p.discountValue || p.discount_value || 0;
+              p.discountType = p.discountType || p.discount_type || 'percent';
+            }
+            // Points - ensure it exists
+            if(!p.points && p.points_earned) p.points = p.points_earned;
+            if(!p.points) p.points = p.points_earned || 1;
+          });
+          // Sort: discount first, then by points desc
+          data.products.sort((a,b)=>{
+            if(a.hasDiscount && !b.hasDiscount) return -1;
+            if(!a.hasDiscount && b.hasDiscount) return 1;
+            if(a.hasDiscount && b.hasDiscount){
+              return (b.discountValue||0) - (a.discountValue||0);
+            }
+            return 0;
+          });
+          v = JSON.stringify(data);
+        }
+      }
+    }catch(e){}
+    return origSetItem.call(this,k,v);
+  };
+
+  // Inject badges into product cards
+  function injectBadges(){
+    try{
+      let cached = null;
+      for(let i=0;i<localStorage.length;i++){
+        let k = localStorage.key(i);
+        if(k && (k.includes('pharmacy') || k.includes('ultra') || k.includes('products'))){
+          try{
+            let d = JSON.parse(localStorage.getItem(k));
+            if(d && d.products && d.products.length){ cached = d.products; break; }
+            if(Array.isArray(d) && d.length && d[0].name){ cached = d; break; }
+          }catch(e){}
+        }
+      }
+      if(!cached) return;
+      
+      // Find all product cards - they have price and name
+      let cards = document.querySelectorAll('div[class*="shadow"], div[class*="rounded"]');
+      cards.forEach(card=>{
+        if(card.dataset.pointsInjected) return;
+        let text = card.textContent||'';
+        // Check if it looks like product card (has جنيه and زر اضافة)
+        if(!text.includes('جنيه') && !text.includes('EGP')) return;
+        if(text.length > 500) return; // not a card
+        
+        // Find product name in card
+        let product = null;
+        for(let p of cached){
+          if(text.includes(p.name.substring(0,15)) || (p.code && text.includes(p.code))){
+            product = p;
+            break;
+          }
+        }
+        if(!product) return;
+        
+        // Already has badge?
+        if(card.querySelector('.points-badge')) return;
+        
+        // Find price container
+        let priceEl = null;
+        card.querySelectorAll('*').forEach(el=>{
+          if(el.textContent && el.textContent.includes('جنيه') && el.children.length===0){
+            priceEl = el.parentElement;
+          }
+        });
+        
+        if(priceEl){
+          // Points badge
+          let pointsDiv = document.createElement('div');
+          pointsDiv.className = 'points-badge';
+          pointsDiv.innerHTML = '🎁 ' + (product.points||product.points_earned||1) + ' نقطة';
+          priceEl.parentElement.appendChild(pointsDiv);
+          
+          // Discount badge if has discount
+          if(product.hasDiscount){
+            let discDiv = document.createElement('div');
+            discDiv.className = 'discount-badge';
+            let dv = product.discountValue||0;
+            discDiv.textContent = dv + (String(product.discountType||'').includes('percent') || dv < 100 ? '% خصم' : ' جنيه خصم');
+            card.style.position='relative';
+            card.appendChild(discDiv);
+            
+            // Show old price
+            if(priceEl && product.price){
+              let oldPrice = document.createElement('span');
+              oldPrice.className='old-price';
+              oldPrice.textContent = product.price + ' جنيه';
+              priceEl.appendChild(oldPrice);
+            }
+          }
+          
+          card.dataset.pointsInjected='1';
+        }
+      });
+    }catch(e){ console.log('inject error', e); }
+  }
+
+  // Run injection frequently
+  setInterval(injectBadges, 1000);
+  document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(injectBadges, 1500); });
+  
+  // Add discount section header at top
+  function addDiscountHeader(){
+    let main = document.querySelector('main') || document.body;
+    if(document.getElementById('discountHeader')) return;
+    // Check if there are discounted products
+    try{
+      let hasDiscount = false;
+      for(let i=0;i<localStorage.length;i++){
+        let k = localStorage.key(i);
+        if(k && k.includes('ultra')){
+          let d = JSON.parse(localStorage.getItem(k)||'{}');
+          if(d.products && d.products.some(p=>p.hasDiscount)){ hasDiscount=true; break; }
+        }
+      }
+      if(hasDiscount){
+        let header = document.createElement('div');
+        header.id='discountHeader';
+        header.className='discount-section';
+        header.innerHTML='<span>🔥 عروض الخصم - تظهر أولاً</span><span>خصومات تصل 50%</span>';
+        let productsContainer = document.querySelector('[class*="grid"]');
+        if(productsContainer && productsContainer.parentElement){
+          productsContainer.parentElement.insertBefore(header, productsContainer);
+        }
+      }
+    }catch(e){}
+  }
+  setInterval(addDiscountHeader, 2000);
+})();
+</script>
+
 </body>
 </html>
