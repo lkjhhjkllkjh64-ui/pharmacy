@@ -107,15 +107,38 @@ function jsonp(url, cb){
 }
 
 function loadProducts(){
-  jsonp(SCRIPT_URL+'?action=products', function(data){
-    if(data && data.products){
-      allProducts=data.products;
-      filtered=allProducts;
+  // ✅ نفس كل حاجة - بس من شيت الاكواد المتاحة مش المنتجات
+  jsonp(SCRIPT_URL, function(data){
+    // data.codes = من شيت الاكواد المتاحة
+    // data.products_map = تفاصيل المنتجات (صور + نقاط + عروض)
+    if(data && data.codes){
+      var pm = data.products_map || {};
+      var seen = {};
+      var list = [];
+      data.codes.forEach(function(c){
+        var qty = Number(c.quantity || 0);
+        if(qty <= 0) return; // متاح فقط
+        var p = c.product || pm[c.product_id] || pm[String(Number(c.product_id))];
+        if(p && !seen[p.id]){
+          seen[p.id]=true;
+          list.push(p);
+        }
+      });
+      // ترتيب العروض أولاً
+      list.sort(function(a,b){
+        if(a.hasDiscount && !b.hasDiscount) return -1;
+        if(!a.hasDiscount && b.hasDiscount) return 1;
+        if(a.hasDiscount && b.hasDiscount) return (b.discount_value||0)-(a.discount_value||0);
+        return 0;
+      });
+      allProducts=list;
+      filtered=list;
       renderCats();
       renderGrid();
       checkDiscountHeader();
+      console.log('✅ من الأكواد المتاحة:', list.length);
     } else {
-      document.getElementById('grid').innerHTML='<div style="padding:20px;text-align:center">فشل تحميل المنتجات - تأكد من Apps Script<br>'+JSON.stringify(data).substring(0,200)+'</div>';
+      document.getElementById('grid').innerHTML='<div style="padding:20px;text-align:center">فشل تحميل الأكواد المتاحة</div>';
     }
   });
 }
